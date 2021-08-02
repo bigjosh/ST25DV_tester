@@ -1,17 +1,49 @@
 
 /*
 
-  Write a message to the mailbox that can be read over NFC.
+  ST25DV NFC chip tester. (c)2021 josh.comb 
+
+  Demonstrate having a phone write a block to the mailbox over NFC and have the Arduino 
+  notice the new connection and read that block. 
+
+  ST25DV is only powered from RF.
+  Requires only 2 pins. 
 
   Phew that was fricken hard. 
   
-  To read on ST NFC demo app, do....
+ 
+  Requires these static registers already be set on the ST25DV:
+
+  EH_MODE=0x00 - Force energy harvesting on at power up. We need this to power the VCC since the chip will not allow mailbox
+                 transactions without VCC. 
+
+  MB_MODE=0x01 - Allows the mailbox function to be enabled.
+
+
+  Requires these connections:              
+  SCL->Arduino A5
+  SDA->Arduino A5
+  GND->Arduino GND
+  EH->VCC
+
+  10K resistor from SCL to VCC
+  10K resistor from SDA to VCC
+  100K resistor from SDA to GND
   
-  Custom Command
-  Addressed Mode
-  CMD_CODE = 0xac
-  Manufacturer checked (0x02)
-  Data: 00 00 (this is for the pointer to where to start reading in the mailbox buffer and len. 00,00 mean start at beginning and read whole thing)
+  To use:
+  Load this sketch into an UNO and then set the the serial monitor to 1000000 and send a message. It should print. 
+
+  To send a message:
+  
+  1. Load the ST NFC app on your phone.
+  2. Set the MB_CTRL_DYN register to 0x01. This enables mailbox.
+  3. Send a message using the following custom command on the phone...
+  
+      Custom Command
+      Addressed Mode
+      CMD_CODE = 0xac
+      Manufacturer checked (0x02)
+      Data: 00 00 (this is for the pointer to where to start reading in the mailbox buffer and len. 00,00 mean start at beginning and read whole thing)
   
 */  
 
@@ -19,6 +51,8 @@
 #define SCL_PORT PORTC
 #define SDA_PIN 4
 #define SDA_PORT PORTC
+
+#define SDA_INPUT_REG PINC    // softi2c uses "pin" to really mean bit, so we can't use "pin" for "port in" like always!
 
 #include "SoftI2CMaster.h"
 
@@ -35,9 +69,10 @@ void setup() {
   delay(100);
   Serial.println("\r\nNFC JOSH Start...");  
 
+  i2c_init();
+
   // put your setup code here, to run once:
 
-  i2c_init();
     
 }
 
@@ -141,86 +176,154 @@ void readUUID() {
 
 void loop() {
 
+  // First we wait for SDA to go high. Ths is pulled to VCC and EH by a 10K resistor so it will go high when the chip sees RF power
+  // This just happens to work out since i2c idle is both lines pulled high
+
+  Serial.println("Waiting for RF power...");
+
+  while ( !(SDA_INPUT_REG & _BV(SDA_PIN)) );
+
+  // We have an RF connection!
+
+  delay(100);   // Wait for some power to stabilize
+
   byte b[256];
 
-  const byte zero_in_array[] = {0x00};
   const byte one_in_array[] = {0x01};
-  const byte eight_in_array[] = {0x08};
 
-  const byte password_in_array[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};    // Default password
-  
-  i2cPresentPassord( password_in_array );
-  Serial.println("Presented password.");                                                    
-    
-
-  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2004 , 0x0001 );
-  Serial.print("I2C_SSO=1:");                                                      
-  Serial.println( b[0] , 16 );           
-
-                                            
-  i2cWrite(  one_in_array , ST25DV_ADDR_SYST_I2C , 0x000D , 0x0001 );
-  delay(5);
-  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x000D , 0x0001 );
-  Serial.print("MB_MODE=1:");                                                      
-  Serial.println( b[0] , 16 );                                                    
-
+  // First we enable the mailbox so the RF side doesn't have to (we can do it faster)
 
   i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
-  Serial.print("MB_CTRL=?:");
-  Serial.println( b[0] , 16 );   
-
+  Serial.print("MB_CTRL=?:");                                                      
+  Serial.println( b[0] , 16 );     
+  
   i2cWrite(  one_in_array , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
-  delay(5);
+  delay(5);  // Tw i2c max write time 
   i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
   Serial.print("MB_CTRL=1:");                                                      
-  Serial.println( b[0] , 16 );                                                            
+  Serial.println( b[0] , 16 );     
+
+  // Keep waiting for messages as long as there is RF power
+
+  while ( (SDA_INPUT_REG & _BV(SDA_PIN)) ) {
+    
+    // Now we poll waiting for a message to come in or for power to drop
+
+     while ( (SDA_INPUT_REG & _BV(SDA_PIN)) ) {
+     
+        // Read the dynamic mailbox register
+        i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
+        const byte mb_ctrl_dyn = b[0];
 
 
-  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x000E , 0x0001 );
-  Serial.print("MB_WDG:");                                                      
-  Serial.println( b[0] , 16 );                                                            
-  i2cWrite(  zero_in_array , ST25DV_ADDR_SYST_I2C , 0x000E , 0x0001 );
-  delay(5);
-  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x000E , 0x0001 );
-  Serial.print("MB_WDG=0:");                                                      
-  Serial.println( b[0] , 16 );                                                            
+        if ( mb_ctrl_dyn & 0x04 ) {   // bit 2 = RF_MESSAGE_PUT indicates a message in the mailbox from RF
 
+          // There is a message waiting for us! 
 
-  const byte magic_message_in_array[] = { 0x62 , 0x63 };      
-  i2cWrite(  magic_message_in_array , ST25DV_ADDR_DATA_I2C , 0x2008 , 0x0002 );
-  delay(5);
-  Serial.println( "Wrote message into mailbox." );   
+          // Read message len
+          i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2007 , 0x0001 );
+          const unsigned mb_len_dyn = b[0] + 1;    // Note that message length is register + 1 (you can't have a 0 len message)
+
+          // Read out the message. This automatically clears is so a new message cen be sent. 
+          i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2008 , mb_len_dyn );
+
+          Serial.println("Message (hex):");
+
+          for( unsigned i=0; i<mb_len_dyn; i++) {
+            Serial.print( (unsigned) b[i] , 16 );
+          }
+
+          Serial.println();
+                    
+        }
+
+        delay(100);   // Give RF some time to write! (i2c activity blocks NFC)
+      
+     }
   
-  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
-  Serial.print("MB_CTRL=?:");                                                        
-  Serial.println( b[0] , 16 );                                                    
-  
-  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2007 , 0x0001 );
-  Serial.print("MB_LEN=?:");                                                        
-  Serial.println( b[0] , 16 );                                                    
-                                          
-
-  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x17 , 0x001 ); 
-  Serial.print("IC_REF:");                                                      
-  Serial.println( b[0] , 16 );                                                    
-  
-
-  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x18 , 0x008 ); 
-  Serial.print("UUID:");                                                      
-  for( int i=0; i<0x08; i++ ) {
-          Serial.print( (unsigned) b[i] , 16 );        
-          Serial.print( ' ' );                                                    
-    }  
-  Serial.println();        
+    
+  }
 
 
-  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2004 , 0x0001 );
-  Serial.print("I2C_SSO=1:");                                                      
-  Serial.println( b[0] , 16 );           
-  
-
-  
-  while (1);
+//
+//
+//  const byte zero_in_array[] = {0x00};  
+//  const byte eight_in_array[] = {0x08};
+//
+//  const byte password_in_array[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};    // Default password
+//  
+//  i2cPresentPassord( password_in_array );
+//  Serial.println("Presented password.");                                                    
+//    
+//
+//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2004 , 0x0001 );
+//  Serial.print("I2C_SSO=1:");                                                      
+//  Serial.println( b[0] , 16 );           
+//
+//                                            
+//  i2cWrite(  one_in_array , ST25DV_ADDR_SYST_I2C , 0x000D , 0x0001 );
+//  delay(5);
+//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x000D , 0x0001 );
+//  Serial.print("MB_MODE=1:");                                                      
+//  Serial.println( b[0] , 16 );                                                    
+//
+//
+//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
+//  Serial.print("MB_CTRL=?:");
+//  Serial.println( b[0] , 16 );   
+//
+//  i2cWrite(  one_in_array , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
+//  delay(5);
+//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
+//  Serial.print("MB_CTRL=1:");                                                      
+//  Serial.println( b[0] , 16 );                                                            
+//
+//
+//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x000E , 0x0001 );
+//  Serial.print("MB_WDG:");                                                      
+//  Serial.println( b[0] , 16 );                                                            
+//  i2cWrite(  zero_in_array , ST25DV_ADDR_SYST_I2C , 0x000E , 0x0001 );
+//  delay(5);
+//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x000E , 0x0001 );
+//  Serial.print("MB_WDG=0:");                                                      
+//  Serial.println( b[0] , 16 );                                                            
+//
+//
+//  const byte magic_message_in_array[] = { 0x62 , 0x63 };      
+//  i2cWrite(  magic_message_in_array , ST25DV_ADDR_DATA_I2C , 0x2008 , 0x0002 );
+//  delay(5);
+//  Serial.println( "Wrote message into mailbox." );   
+//  
+//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
+//  Serial.print("MB_CTRL=?:");                                                        
+//  Serial.println( b[0] , 16 );                                                    
+//  
+//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2007 , 0x0001 );
+//  Serial.print("MB_LEN=?:");                                                        
+//  Serial.println( b[0] , 16 );                                                    
+//                                          
+//
+//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x17 , 0x001 ); 
+//  Serial.print("IC_REF:");                                                      
+//  Serial.println( b[0] , 16 );                                                    
+//  
+//
+//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x18 , 0x008 ); 
+//  Serial.print("UUID:");                                                      
+//  for( int i=0; i<0x08; i++ ) {
+//          Serial.print( (unsigned) b[i] , 16 );        
+//          Serial.print( ' ' );                                                    
+//    }  
+//  Serial.println();        
+//
+//
+//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2004 , 0x0001 );
+//  Serial.print("I2C_SSO=1:");                                                      
+//  Serial.println( b[0] , 16 );           
+//  
+//
+//  
+//  while (1);
   
 //
 //
@@ -245,6 +348,5 @@ void loop() {
 //  }
 //  
   
-delay(1000);
 
 }

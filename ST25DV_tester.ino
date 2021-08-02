@@ -1,5 +1,19 @@
 
+/*
 
+  Write a message to the mailbox that can be read over NFC.
+
+  Phew that was fricken hard. 
+  
+  To read on ST NFC demo app, do....
+  
+  Custom Command
+  Addressed Mode
+  CMD_CODE = 0xac
+  Manufacturer checked (0x02)
+  Data: 00 00 (this is for the pointer to where to start reading in the mailbox buffer and len. 00,00 mean start at beginning and read whole thing)
+  
+*/  
 
 #define SCL_PIN 5
 #define SCL_PORT PORTC
@@ -132,8 +146,6 @@ void loop() {
   const byte zero_in_array[] = {0x00};
   const byte one_in_array[] = {0x01};
   const byte eight_in_array[] = {0x08};
-
-
 
   const byte password_in_array[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};    // Default password
   

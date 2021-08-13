@@ -82,7 +82,7 @@ If phone can ditect a loss of NFC link, then it aborts with error screen. Otherw
 
 ### App State Block
 
-At the beginging of each NFC link, the blink will send a block to the phone with state data saved by different games. There will be a new API call on the NFC blink like `saveAppData( const char *buffer , byte len )` that will update the info in this block. The blink will remember as many of the most recent saves as it can fit into a block. 
+At the beginging of each NFC link, the blink will send a block to the phone with state data saved by different games. There will be a new API call on the NFC blink like `gameSaveData( const char *buffer , byte len )` that will update the info in this block. The blink will remember as many of the most recent saves as it can fit into a block. 
 
 #### Block format
 
@@ -96,6 +96,7 @@ At the beginging of each NFC link, the blink will send a block to the phone with
 Data is arbitrary bytes. Each game can pick how long, and what to put in there. An example might be 4 byte high score + sequence of moves to get there. The ser
 
 | Bytes | Content |
+| - | - | 
 | 2  | Game UID | 
 | 1 | Data len |
 | n | Data |

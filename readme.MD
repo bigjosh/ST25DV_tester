@@ -59,6 +59,74 @@ TODO: Who starts? Do we try to make our own protocol, or try to reverse engineer
 
 TODO: What is the difference between the "fast" and normal message commands? Do the fast ones work on all phones? How do we check? 
 
+## RF NFC  commands
+
+### Read GPIO register
+
+This is good to test if you have connecttivity since it will return a prdictable non-zero number.
+
+00 0A 02 00 
+
+Should return 0x88 after power up. T
+
+![image](https://user-images.githubusercontent.com/5520281/129462373-960936b2-941a-4025-8474-97f0320e382e.png)
+
+
+00=Request flags (none)
+
+### Read Dyn register
+
+02 AD 02 0D
+
+Returns 00 00 on reset, or 00 01 if mailbox enabled. Bit 1 to see if message ready from i2c. Bit 2 if a message from RF is pending (check this to see if all clear to send next block).
+
+00=Request return status
+01=The actual value of the read register
+
+02=REQ_FLAG with bit #2 "high data rate" set
+AD=Command code for read dynamic reg
+02=Manufaturer ID for the customer command
+0D=THe address of the MB_CTRL_Dyn register
+
+### Write Dyn register
+
+02 AE 02 0D 01
+
+Enable mailbox. Returns 0x00 on success. I think probably the i2c side will do this so the RF side doesn't have to. 
+
+### Read mailbox control reg
+
+02 AD 02 0D
+
+![image](https://user-images.githubusercontent.com/5520281/129467551-2290625b-7178-4ec0-a16b-3cd6bbd74ce0.png)
+
+First we check the HOST_PUT_MSG bit to see if the high score block from the blink is in the mailbox yet. Poll until it is - but not too fast since access to the mailbox is exclusive. 
+
+Then we read the mailbox with...
+
+### Read mailbox block
+First we read the len, then the data itself
+
+#### Read message len 
+
+02 AB 02
+
+The response is the len.
+
+### Read message data
+
+02 AC 02 00 xx
+
+...where xx is the len from above. The 00 is the starting byte index. Note that the actual data len is xx+1 so if XX is 0 then you will get 1 byte and is xx is ff then you get 256 bytes. 
+
+### Write message
+
+02 AA 02 xx dd dd dd ....
+
+where xx is the (number of dd bytes) -1 
+
+What is the difference between Write and Fast Write?
+
 ## iPhone Questions
 
 Seems like the iPhone does not keep the RF field on between transactions, but we need the Vcc to stay up the whole time. TODO: Is there a way to keep that field up in the iOS API? Or do we need to add a capacitor there? Or even maybe need to waste a pin to power Vcc after connect so iPhone can do mailboxes? 

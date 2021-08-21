@@ -34,8 +34,14 @@ This resistor is big enough that it should not matter when things are running no
 
 To save time on each connect we can get everything ready by setting stat registers....
 
-MB_MODE = 0x01. Allows mailboxes to be enabled.
 EH_MODE = 0x00. Turns on energy harvesting each time we get an RF power up.
+Command=A1 Data=02 00
+
+
+MB_MODE = 0x01. Allows mailboxes to be enabled.
+
+
+
 
 TODO: We probably want to put an NREF record that has a URI that points to the app in the app store? Can we support both iPhone and Android? Can we have it automatically open the app?  
 

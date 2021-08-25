@@ -22,12 +22,11 @@
 
   Requires these connections:              
   SCL->Arduino A5
-  SDA->Arduino A5
+  SDA->Arduino A4
   GND->Arduino GND
   EH->VCC
 
-  10K resistor from SCL to VCC
-  10K resistor from SDA to VCC
+  5K resistor from SDA to VCC
   100K resistor from SDA to GND
   
   To use:
@@ -47,15 +46,10 @@
   
 */  
 
-#define SCL_PIN 5
-#define SCL_PORT PORTC
-#define SDA_PIN 4
-#define SDA_PORT PORTC
 
-#define SDA_INPUT_REG PINC    // softi2c uses "pin" to really mean bit, so we can't use "pin" for "port in" like always!
+#define I2C_VCC_PIN A3
 
-#include "SoftI2CMaster.h"
-
+#include "i2c.h"
 
 /** @brief I2C address to be used for ST25DV Data accesses. */
 #define ST25DV_ADDR_DATA_I2C                 0xA6
@@ -124,13 +118,11 @@ void i2cPresentPassord( const byte *pData) {
 
 byte i2cRead( byte *pData, const uint8_t addr, const uint16_t TarAddr,  uint16_t len) {
 
-
   i2c_start(addr|I2C_WRITE);    // Get the slave's attention, tell it we're sending a command byte
   i2c_write(TarAddr >> 8);           //  The command byte, sets pointer to register with address of 0x32
   i2c_write(TarAddr & 0xFF);         //  The command byte, sets pointer to register with address of 0x32
-
   
-  i2c_rep_start(addr|I2C_READ);
+  i2c_restart(addr|I2C_READ);
     
   while ( len ) {
 
@@ -142,7 +134,6 @@ byte i2cRead( byte *pData, const uint8_t addr, const uint16_t TarAddr,  uint16_t
   }
 
   i2c_stop();
-
 
   return 0;
   
@@ -179,13 +170,23 @@ void loop() {
   // First we wait for SDA to go high. Ths is pulled to VCC and EH by a 10K resistor so it will go high when the chip sees RF power
   // This just happens to work out since i2c idle is both lines pulled high
 
+/*
+
   Serial.println("Waiting for RF power...");
 
   while ( !(SDA_INPUT_REG & _BV(SDA_PIN)) );
 
-  // We have an RF connection!
 
-  delay(100);   // Wait for some power to stabilize
+  Serial.println("We have an RF connection!");
+*/
+
+  // Turn on Vcc
+  digitalWrite( I2C_VCC_PIN , 1 );
+  pinMode( I2C_VCC_PIN , OUTPUT );
+
+  delay(200);   // Wait for some power to stabilize
+
+  unsigned long start_time = millis(); 
 
   byte b[256];
 
@@ -193,9 +194,13 @@ void loop() {
 
   // First we enable the mailbox so the RF side doesn't have to (we can do it faster)
 
+  Serial.println("Read MB_CTRL...");
+
   i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
   Serial.print("MB_CTRL=?:");                                                      
   Serial.println( b[0] , 16 );     
+
+  Serial.println("Write MB_CTRL...");
   
   i2cWrite(  one_in_array , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
   delay(5);  // Tw i2c max write time 
@@ -205,11 +210,11 @@ void loop() {
 
   // Keep waiting for messages as long as there is RF power
 
-  while ( (SDA_INPUT_REG & _BV(SDA_PIN)) ) {
+  while ( (SDA_PIN & _BV(SDA_BIT)) ) {
     
     // Now we poll waiting for a message to come in or for power to drop
 
-     while ( (SDA_INPUT_REG & _BV(SDA_PIN)) ) {
+     while ((SDA_PIN & _BV(SDA_BIT)) ) {
      
         // Read the dynamic mailbox register
         i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );

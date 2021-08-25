@@ -51,10 +51,7 @@
 
 #include "i2c.h"
 
-/** @brief I2C address to be used for ST25DV Data accesses. */
-#define ST25DV_ADDR_DATA_I2C                 0xA6
-/** @brief I2C address to be used for ST25DV System accesses. */
-#define ST25DV_ADDR_SYST_I2C                 0xAE
+#define ST25_DEVICE_TYPE_ID (0b1010)  // "the 4-bit device type identifier is 1010b."
 
 void setup() {
   
@@ -64,18 +61,22 @@ void setup() {
   Serial.println("\r\nNFC JOSH Start...");  
 
   i2c_init();
+  
+}
 
-  // put your setup code here, to run once:
+// The first byte sent with the start condition
+// From datasheet page 66
 
-    
+constexpr uint8_t ST25_deviceSelectCode(  const uint8_t e2  , const uint8_t read_flag ) {
+
+  return ( ST25_DEVICE_TYPE_ID << 4 ) | ( e2 ? 0b00001000 : 0b00000000) | ( 0b0110 ) | ( read_flag ? I2C_READ : I2C_WRITE ) ;
+  
 }
 
 
+byte i2cWrite( const byte *pData, const uint8_t e2, const uint16_t TarAddr,  uint16_t len) {
 
-
-byte i2cWrite( const byte *pData, const uint8_t addr, const uint16_t TarAddr,  uint16_t len) {
-
-  i2c_start(addr|I2C_WRITE );    // Get the slave's attention, tell it we're sending a command byte
+  i2c_start( ST25_deviceSelectCode( e2 , 0 ) );    // Get the slave's attention, tell it we're sending a command byte
   i2c_write(TarAddr >> 8);           //  The command byte, sets pointer to register with address of 0x32
   i2c_write(TarAddr & 0xFF);         //  The command byte, sets pointer to register with address of 0x32
 
@@ -99,7 +100,7 @@ byte i2cWrite( const byte *pData, const uint8_t addr, const uint16_t TarAddr,  u
 
 void i2cPresentPassord( const byte *pData) {
 
-  byte buffer[8*2+1];   // Password two with "present password" command between them
+  byte buffer[ (8*2)+1];   // Password two with "present password" command between them
 
   for( byte i=0; i<8; i++ ) {
 
@@ -110,19 +111,19 @@ void i2cPresentPassord( const byte *pData) {
 
   buffer[8] = 0x09;   // "Present password"
 
-  i2cWrite( buffer ,   ST25DV_ADDR_SYST_I2C , 0x0900 , 17 );  // Device select code = 1010111
+  i2cWrite( buffer ,   1 , 0x0900 , (8*2) + 1 ); 
 
 
 }
 
 
-byte i2cRead( byte *pData, const uint8_t addr, const uint16_t TarAddr,  uint16_t len) {
+byte i2cRead( byte *pData, const uint8_t e2, const uint16_t TarAddr,  uint16_t len) {
 
-  i2c_start(addr|I2C_WRITE);    // Get the slave's attention, tell it we're sending a command byte
+  i2c_start(ST25_deviceSelectCode( e2 , 0 ));    // All reads start with a write to set the address
   i2c_write(TarAddr >> 8);           //  The command byte, sets pointer to register with address of 0x32
   i2c_write(TarAddr & 0xFF);         //  The command byte, sets pointer to register with address of 0x32
   
-  i2c_restart(addr|I2C_READ);
+  i2c_restart(ST25_deviceSelectCode( e2 , 0 ));  // Do a restart to now read from the address set above
     
   while ( len ) {
 
@@ -144,7 +145,7 @@ void readUUID() {
   
   byte b[256];
   
-  if ( !i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x18 , 0x008 ) ) {
+  if ( !i2cRead( b , 1 , 0x18 , 0x0008 ) ) {
 
     Serial.println("Read good...");  
 
@@ -184,7 +185,7 @@ void loop() {
   digitalWrite( I2C_VCC_PIN , 1 );
   pinMode( I2C_VCC_PIN , OUTPUT );
 
-  delay(200);   // Wait for some power to stabilize
+  _delay_us(1);   // Wait for some power to stabilize
 
   unsigned long start_time = millis(); 
 
@@ -196,17 +197,19 @@ void loop() {
 
   Serial.println("Read MB_CTRL...");
 
-  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
+  i2cRead( b , 0 , 0x2006 , 0x0001 );
   Serial.print("MB_CTRL=?:");                                                      
   Serial.println( b[0] , 16 );     
 
   Serial.println("Write MB_CTRL...");
   
-  i2cWrite(  one_in_array , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
+  i2cWrite(  one_in_array , 0 , 0x2006 , 0x0001 );
   delay(5);  // Tw i2c max write time 
-  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
+  i2cRead( b , 0 , 0x2006 , 0x0001 );
   Serial.print("MB_CTRL=1:");                                                      
   Serial.println( b[0] , 16 );     
+
+  while (1); 
 
   // Keep waiting for messages as long as there is RF power
 
@@ -217,7 +220,7 @@ void loop() {
      while ((SDA_PIN & _BV(SDA_BIT)) ) {
      
         // Read the dynamic mailbox register
-        i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
+        i2cRead( b , 0 , 0x2006 , 0x0001 );
         const byte mb_ctrl_dyn = b[0];
 
 
@@ -226,11 +229,11 @@ void loop() {
           // There is a message waiting for us! 
 
           // Read message len
-          i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2007 , 0x0001 );
+          i2cRead( b , 0 , 0x2007 , 0x0001 );
           const unsigned mb_len_dyn = b[0] + 1;    // Note that message length is register + 1 (you can't have a 0 len message)
 
           // Read out the message. This automatically clears is so a new message cen be sent. 
-          i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2008 , mb_len_dyn );
+          i2cRead( b ,0 , 0x2008 , mb_len_dyn );
 
           Serial.println("Message (hex):");
 

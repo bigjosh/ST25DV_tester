@@ -49,5 +49,5 @@ uint8_t i2c_read( uint8_t lastFlag);
 
 // OR these with the device address 
 
-#define I2C_WRITE 0x01
-#define I2C_READ  0x00
+#define I2C_WRITE 0x00
+#define I2C_READ  0x01

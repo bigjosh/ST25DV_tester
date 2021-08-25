@@ -92,7 +92,6 @@ uint8_t i2c_write( uint8_t data ) {
             sda_high();
         } else {
             sda_low();
-
         }
 
         // clock it out
@@ -111,12 +110,14 @@ uint8_t i2c_write( uint8_t data ) {
     // low after the next falling SCLK edge, for 1 cycle.
 
     sda_high();            // Pull SDA high so we can see if the slave is driving low
-    _delay_us(BIT_TIME_US);     // Not needed, but so we can see what is happening on the scope
+    _delay_us(BIT_TIME_US);     // Not needed, but so we can see what is happening on the scope    
     scl_high();
 
     uint8_t ret = sda_read();   // slave should be driving low now
 
     _delay_us(BIT_TIME_US);     // Not needed, but so we can see what is happening on the scope    
+    _delay_us(BIT_TIME_US);     // Not needed, but so we can see what is happening on the scope
+
     scl_low();            // Slave release
 
     return(ret);

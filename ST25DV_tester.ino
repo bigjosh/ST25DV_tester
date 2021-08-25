@@ -60,8 +60,7 @@ void setup() {
   delay(100);
   Serial.println("\r\nNFC JOSH Start...");  
 
-  i2c_init();
-  
+
 }
 
 // The first byte sent with the start condition
@@ -181,13 +180,17 @@ void loop() {
   Serial.println("We have an RF connection!");
 */
 
-  // Turn on Vcc
+  i2c_init();
+ 
+  unsigned long start_time = millis(); 
+
+  Serial.println("Wait...");
+
+   // Turn on Vcc
   digitalWrite( I2C_VCC_PIN , 1 );
   pinMode( I2C_VCC_PIN , OUTPUT );
 
-  _delay_us(1);   // Wait for some power to stabilize
-
-  unsigned long start_time = millis(); 
+  _delay_us(600);   // Tboot=0.6ms, time from power up until i2c available
 
   byte b[256];
 
@@ -206,8 +209,11 @@ void loop() {
   i2cWrite(  one_in_array , 0 , 0x2006 , 0x0001 );
   delay(5);  // Tw i2c max write time 
   i2cRead( b , 0 , 0x2006 , 0x0001 );
-  Serial.print("MB_CTRL=1:");                                                      
+  Serial.print("MB_CTRL=1:");                                      
   Serial.println( b[0] , 16 );     
+   // Turn off Vcc
+  digitalWrite( I2C_VCC_PIN , 0 );
+  
 
   while (1); 
 

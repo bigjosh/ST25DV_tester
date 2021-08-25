@@ -9,36 +9,30 @@
 
 // Assumes OUT bits are still at startup default of 0
 
+// SDA allways either (1) pulled high, or (2) driven low. 
+// Assumes there is ~5K external pull-up on here if you want to go fast.
+
+// SCL always driven. Idle state is HIGH.
+
 // Drive SDA low
-
-void test() {
-
-}
-
 static inline void sda_low(void) {
     CBI( SDA_PORT , SDA_BIT );
     SBI( SDA_DDR  , SDA_BIT );
 }
 
 // Pull SDA high
-
 static inline void sda_high(void) {
-    CBI( SDA_DDR  , SDA_BIT );  
-    SBI( SDA_PORT , SDA_BIT );
+    CBI( SDA_DDR  , SDA_BIT );    
+    SBI( SDA_PORT , SDA_BIT );    
 }
 
 static inline uint8_t sda_read() {
   return ( (SDA_PIN & SDA_BIT) != 0 );
 }
 
-static inline void sda_off(void) {
-    CBI( SDA_DDR  , SDA_BIT );  
-    CBI( SDA_PORT , SDA_BIT );
-}
-
-static inline void scl_on_high(void) {
-    SBI( SCL_PORT, SCL_BIT );  
-    SBI( SCL_DDR , SCL_BIT );
+// Drive high
+static inline void scl_enable(void) {
+    SBI( SCL_DDR, SCL_BIT );  
 }
 
 static inline void scl_high(void) {
@@ -49,32 +43,16 @@ static inline void scl_low(void) {
     CBI( SCL_PORT, SCL_BIT );  
 }
 
-static inline void scl_off(void) {
-    CBI( SCL_DDR , SCL_BIT );  
-    CBI( SCL_PORT, SCL_BIT );  
-}
 
+// Leaves SDA pulled high, SCL driven high
 
-
-void i2c_init( void )
-{
-
-  scl_on_high();
+void i2c_init() {
+  scl_enable();
+  scl_high();
   sda_high();
-
-  // This leaves us with both SCL and SDA high, which is an idle state
+  
 }
 
-
-// Completely disconnect TWI pins and leave floating!
-
-void i2c_disable( void )
-{
-
-    scl_off();
-    sda_off();
-    
-}    
 
 
 // Write a byte out to the slave and look for ACK bit
@@ -126,13 +104,14 @@ uint8_t i2c_write( uint8_t data ) {
 
 
 
-// Assumes SCL high, SDA high (idle)
+// Assumes SCL and SDA are off
 // Returns with SCL low, SDA low
 // Returns 0 is ACK
 
 uint8_t i2c_start( uint8_t slave ) {
 
-    // We assume that we enter in idle state since that is how all public functions leave us
+    scl_high();
+    sda_high();    
     
     _delay_us(BIT_TIME_US);         // Make sure we have been in idle at least long enough to see the falling SDA
 

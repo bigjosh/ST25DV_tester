@@ -10,12 +10,9 @@
 #define SDA_DDR   DDRC
 #define SDA_PIN   PINC
 
-void i2c_init( void );
 
-
-// Completely disconnect TWI pins and leave floating!
-void i2c_disable( void );
-
+// Leaves SDA pulled high, SCL driven high
+void i2c_init();
 
 // Write a byte out to the slave and look for ACK bit
 // Assumes SCL low, SDA doesn't matter

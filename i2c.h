@@ -1,5 +1,5 @@
 
-#define BIT_TIME_US     (5)          // How long should should we wait between bit transitions?
+#define BIT_TIME_US     (1)          // How long should should we wait between bit transitions?
 
 #define SCL_BIT   5
 #define SCL_PORT  PORTC

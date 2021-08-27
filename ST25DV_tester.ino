@@ -50,6 +50,7 @@
 #define I2C_VCC_PIN A3
 
 #include "i2c.h"
+#include "st25dv.h"
 
 #define ST25_DEVICE_TYPE_ID (0b1010)  // "the 4-bit device type identifier is 1010b."
 
@@ -79,16 +80,11 @@ byte i2cWrite( const byte *pData, const uint8_t e2, const uint16_t TarAddr,  uin
   i2c_write(TarAddr >> 8);           //  The command byte, sets pointer to register with address of 0x32
   i2c_write(TarAddr & 0xFF);         //  The command byte, sets pointer to register with address of 0x32
 
-  Serial.print("WRITE:");
   while (len--) {
-    Serial.print( (int) *pData , 16 );
-    Serial.print( ' ' );
     i2c_write(*pData++);
   }
 
   i2c_stop();
-
-  Serial.println(".");
 
   return 0;
 
@@ -110,7 +106,7 @@ void i2cPresentPassord( const byte *pData) {
 
   buffer[8] = 0x09;   // "Present password"
 
-  i2cWrite( buffer ,   1 , 0x0900 , (8*2) + 1 ); 
+  i2cWrite( buffer ,   1 , ST25DV_I2CPASSWD_REG , (8*2) + 1 ); 
 
 
 }
@@ -122,13 +118,13 @@ byte i2cRead( byte *pData, const uint8_t e2, const uint16_t TarAddr,  uint16_t l
   i2c_write(TarAddr >> 8);           //  The command byte, sets pointer to register with address of 0x32
   i2c_write(TarAddr & 0xFF);         //  The command byte, sets pointer to register with address of 0x32
   
-  i2c_restart(ST25_deviceSelectCode( e2 , 0 ));  // Do a restart to now read from the address set above
+  i2c_restart(ST25_deviceSelectCode( e2 , 1 ));  // Do a restart to now read from the address set above
     
   while ( len ) {
 
     len--;
 
-    byte c = i2c_read(len==0 );      // the param here is called "last" and is true if this is the lasy byte to read
+    byte c = i2c_read( len==0 );      // the param here is called "last" and is true if this is the lasy byte to read
     *pData = c;
     pData++;
   }
@@ -180,11 +176,20 @@ void loop() {
   Serial.println("We have an RF connection!");
 */
 
+  byte b[256];
+
+  const byte one_in_array[] = {0x01};
+
+
   i2c_init();
  
   unsigned long start_time = millis(); 
 
   Serial.println("Wait...");
+
+
+  
+  Serial.println("On...");
 
    // Turn on Vcc
   digitalWrite( I2C_VCC_PIN , 1 );
@@ -192,9 +197,57 @@ void loop() {
 
   _delay_us(600);   // Tboot=0.6ms, time from power up until i2c available
 
-  byte b[256];
+  // Read security session
+  i2cRead( b , 0 , ST25DV_I2C_SSO_DYN_REG , 0x0001 );
+  Serial.print("SSO=0:");                                                      
+  Serial.println( b[0] , 16 );   
 
-  const byte one_in_array[] = {0x01};
+
+  const byte password_in_array[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};    // Default password
+  i2cPresentPassord( password_in_array );
+
+
+  // Read security session
+  i2cRead( b , 0 , ST25DV_I2C_SSO_DYN_REG , 0x0001 );
+  Serial.print("SSO=1:");
+  Serial.println( b[0] , 16 );   
+
+
+  // Read static GPIO 
+  i2cRead( b , 1 , ST25DV_GPO_REG, 0x0001 );
+  Serial.print("GPIO=?:");                                                      
+  Serial.println( b[0] , 16 );   
+
+  Serial.println("Write GPIO 90 (on PUT, Enabled)...");
+  uint8_t new_gpio_reg_val = ST25DV_GPO_RFPUTMSG_MASK | ST25DV_GPO_ENABLE_MASK;
+  i2cWrite(  &new_gpio_reg_val , 1 , ST25DV_GPO_REG , 0x0001 );
+
+
+
+  /*
+      I²C write time = 5 ms
+      I2C write time for 1 Byte, 2 Bytes, 3 Bytes or 4 Bytes in EEPROM (user memory and system configuration),
+      provided they are all located in the same memory page, that is the most significant memory address bits
+      (b16-b2) are the same.
+   */
+
+  _delay_ms(5);  // Must wait 
+   
+  // Read security session
+  i2cRead( b , 0 , ST25DV_I2C_SSO_DYN_REG , 0x0001 );
+  Serial.print("SSO=1:");
+  Serial.println( b[0] , 16 );   
+  
+  // Read static GPIO 
+  i2cRead( b , 1 , ST25DV_GPO_REG, 0x0001 );
+  Serial.print("GPIO=90:");
+  Serial.println( b[0] , 16 );   
+
+  // Read security session
+  i2cRead( b , 0 , ST25DV_I2C_SSO_DYN_REG , 0x0001 );
+  Serial.print("SSO=1:");
+  Serial.println( b[0] , 16 );   
+  
 
   // First we enable the mailbox so the RF side doesn't have to (we can do it faster)
 

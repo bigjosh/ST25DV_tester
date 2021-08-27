@@ -5,6 +5,7 @@
 
 #define CBI(x,b) (x&=~(1<<b))
 #define SBI(x,b) (x|=(1<<b))
+#define TBI(x,b) ((x&(1<<b))!=0)
 
 
 // Assumes OUT bits are still at startup default of 0
@@ -27,7 +28,7 @@ static inline void sda_high(void) {
 }
 
 static inline uint8_t sda_read() {
-  return ( (SDA_PIN & SDA_BIT) != 0 );
+  return ( TBI( SDA_PIN , SDA_BIT) );
 }
 
 // Drive high
@@ -94,7 +95,6 @@ uint8_t i2c_write( uint8_t data ) {
     uint8_t ret = sda_read();   // slave should be driving low now
 
     _delay_us(BIT_TIME_US);     // Not needed, but so we can see what is happening on the scope    
-    _delay_us(BIT_TIME_US);     // Not needed, but so we can see what is happening on the scope
 
     scl_low();            // Slave release
 
@@ -129,7 +129,7 @@ uint8_t i2c_start( uint8_t slave ) {
 }
 
 
-// Assumes SCL=low, SDA=high
+// Assumes SCL=low, SDA=?
 // Returns with SCL low, SDA low
 
 uint8_t i2c_restart( uint8_t slave ) {
@@ -138,7 +138,7 @@ uint8_t i2c_restart( uint8_t slave ) {
     return i2c_start( slave );
 }
 
-// Assumes on entry SCL low 
+// Assumes on entry SCL=low, SDA low
 // Returns with bus idle, SCL high SDA high (idle)
 
 void i2c_stop(void) {
@@ -149,15 +149,14 @@ void i2c_stop(void) {
     // Q: Is this Really needed? Can we just do repeat starts and save this code? Spec is vague if address is reset on start.
     // A: Yes, we need this because it is possible that the FM_IC is holding the SDA line low
     // wait for us to clock out the MSB of the next byte!
-
+    
+    _delay_us(BIT_TIME_US);     // Give is a moment to stabilize in case
+    scl_low();
     sda_low();
     _delay_us(BIT_TIME_US);     // Give is a moment to stabilize in case
     scl_high();
     _delay_us(BIT_TIME_US);
-
     sda_high();            // SDA low to high while SCLK is high is a STOP
-    _delay_us(BIT_TIME_US);
-
 }
 
 // Returns byte read.
@@ -173,27 +172,31 @@ uint8_t i2c_read( uint8_t lastFlag ) {
 
       _delay_us(BIT_TIME_US);
           
-      scl_high();           // Clock in the first data bit
+      scl_high();           // Clock in thedata bit
   
       _delay_us(BIT_TIME_US);
-  
-      if (sda_read()) {
+
+      // Note here we sample at the last possibible moment after the clock has been
+      // high for a full bit time. This gives the line max time to go back up when released. 
+ 
+      if ( sda_read() ) {
   
           data |= bitMask;
   
       }
-  
+
+        
       scl_low();
   
   }
 
   // ACK
 
-  if (lastFlag) {
+  if (lastFlag) {    
+    sda_high();       // NAK on last byte of sequence read
+  } else {    
     sda_low();
-  } else {
-    sda_high(); 
-  }
+  } 
 
   _delay_us(BIT_TIME_US);
 

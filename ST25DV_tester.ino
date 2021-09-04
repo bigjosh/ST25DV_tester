@@ -148,11 +148,7 @@ byte i2cRead( byte *pData, const uint8_t e2, const uint16_t TarAddr,  uint16_t l
     len--;
 
     const byte lastFlag = (len==0);
-
     byte c = i2c_read( lastFlag );      // the param here is called "last" and is true if this is the lasy byte to read
-    Serial.print("i2cread=");
-    Serial.print( (lastFlag)?'N':'A');
-    Serial.println(c,16);
     *pData = c;
     pData++;
   }
@@ -289,8 +285,6 @@ uint8_t initialProgramming() {
   }
   
 
-  
-
   Serial.print("Initial programming successfully completed. Powwering ST25 down.");
 
   // Turn off Vcc   
@@ -363,7 +357,7 @@ void loop() {
                 // we can not do any i2c until this pulse is over. 
                 // This also gives us time for Tboot=0.6ms, time from power up until i2c available
                 
-  print_mb_dyn();
+  //print_mb_dyn();
   
   // OK, now should be all clear to use i2c now
 
@@ -391,7 +385,7 @@ void loop() {
   
   i2cWrite(  &mailbox_enable_reg_val , 0 , ST25DV_MB_CTRL_DYN_REG , 0x0001 );  
 
-  print_mb_dyn();
+  //print_mb_dyn();
 
   Serial.println("Putting message in mailbox...");
   // Send a mailbox
@@ -419,10 +413,10 @@ void loop() {
       _delay_ms(100);   // Give the RF side a chance...
       retVal = i2cRead( &mb_dyn_reg , 0 , ST25DV_MB_CTRL_DYN_REG , 0x0001 );
 
-      Serial.print("retval=");
-      Serial.println(retVal);
-      Serial.print("mb_dyn=");
-      Serial.println( mb_dyn_reg );
+//      Serial.print("retval=");
+//      Serial.println(retVal);
+//      Serial.print("mb_dyn=");
+//      Serial.println( mb_dyn_reg );
       
     } while ( (retVal!=0) || ((mb_dyn_reg & ST25DV_MB_CTRL_DYN_RFPUTMSG_MASK) == 0) );    // New message from RF side? retVal!=0 means busy on RF side
 
@@ -443,7 +437,7 @@ void loop() {
 
     uint8_t mailbox_buffer[ST25DV_MAX_MAILBOX_LENGTH];
 
-    const uint8_t rr = i2cRead( mailbox_buffer , 0 , ST25DV_MAILBOX_RAM_REG , mb_len+1 );
+    const uint8_t rr = i2cRead( mailbox_buffer , 0 , ST25DV_MAILBOX_RAM_REG , mb_len );
 
     Serial.print("mailbox read result=");
     Serial.println(rr);
@@ -463,7 +457,7 @@ void loop() {
     }
 
     Serial.println();
-    //print_mb_dyn();
+    print_mb_dyn();
   }
 
   vccFloat();

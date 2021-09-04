@@ -54,16 +54,6 @@
 
 #define ST25_DEVICE_TYPE_ID (0b1010)  // "the 4-bit device type identifier is 1010b."
 
-void setup() {
-  
-  Serial.begin(1000000);
-
-  delay(100);
-  Serial.println("\r\nNFC JOSH Start...");  
-
-
-}
-
 // The first byte sent with the start condition
 // From datasheet page 66
 
@@ -74,26 +64,46 @@ constexpr uint8_t ST25_deviceSelectCode(  const uint8_t e2  , const uint8_t read
 }
 
 
-byte i2cWrite( const byte *pData, const uint8_t e2, const uint16_t TarAddr,  uint16_t len) {
+byte i2cWrite( const uint8_t *pData, const uint8_t e2, const uint16_t TarAddr,  uint16_t len) {
+
+  uint8_t retVal=0;    
 
   i2c_start( ST25_deviceSelectCode( e2 , 0 ) );    // Get the slave's attention, tell it we're sending a command byte
   i2c_write(TarAddr >> 8);           //  The command byte, sets pointer to register with address of 0x32
   i2c_write(TarAddr & 0xFF);         //  The command byte, sets pointer to register with address of 0x32
 
-  while (len--) {
-    i2c_write(*pData++);
+  while (len-- && !retVal) {
+    retVal = i2c_write(*pData++);   // Returns 0 on success
   }
 
   i2c_stop();
 
-  return 0;
+  return retVal;
 
+}
+
+void vccOn() {
+  digitalWrite( I2C_VCC_PIN , 1 );  
+  pinMode( I2C_VCC_PIN , OUTPUT ); 
+}
+
+// Force Vcc low to bleed off any charge
+
+void vccOff() {
+  digitalWrite( I2C_VCC_PIN , 0 );  
+  pinMode( I2C_VCC_PIN , OUTPUT ); 
+}
+
+
+void vccFloat() {
+  pinMode( I2C_VCC_PIN , INPUT );   
+  digitalWrite( I2C_VCC_PIN , 0 );  
 }
 
 
 // pData is 8 byte password
 
-void i2cPresentPassord( const byte *pData) {
+void i2cPresentPassord( const uint8_t *pData) {
 
   byte buffer[ (8*2)+1];   // Password two with "present password" command between them
 
@@ -115,8 +125,12 @@ void i2cPresentPassord( const byte *pData) {
 byte i2cRead( byte *pData, const uint8_t e2, const uint16_t TarAddr,  uint16_t len) {
 
   i2c_start(ST25_deviceSelectCode( e2 , 0 ));    // All reads start with a write to set the address
-  i2c_write(TarAddr >> 8);           //  The command byte, sets pointer to register with address of 0x32
-  i2c_write(TarAddr & 0xFF);         //  The command byte, sets pointer to register with address of 0x32
+  if (i2c_write(TarAddr >> 8)) {           //  The command byte, sets pointer to register with address of 0x32
+    return 1;
+  }
+  if (i2c_write(TarAddr & 0xFF)) {         //  The command byte, sets pointer to register with address of 0x32
+    return 1;
+  }
   
   i2c_restart(ST25_deviceSelectCode( e2 , 1 ));  // Do a restart to now read from the address set above
     
@@ -161,68 +175,52 @@ void readUUID() {
   }
 }
 
-void loop() {
 
-  // First we wait for SDA to go high. Ths is pulled to VCC and EH by a 10K resistor so it will go high when the chip sees RF power
-  // This just happens to work out since i2c idle is both lines pulled high
+// Program static registers. Must be done once per chip.
+// Returns 0=success, 1=failure. 
+// Turns on power to chip, programs the registers, then turns off power. 
+// Sets...
+// 1. Mailbox to default allowed
+// 2. GPO pulses low on RF change
 
-/*
+// Note that we pick the pulse low in RF becuase...
+// Using a message_put to wake would be better, but the RF side can not enable mailbox until there is Vcc power
+// Using a RF low would be better than pulse, but id the GPO pin is low then we can do not any i2c to turn it off since it shares the SDA pin.
 
-  Serial.println("Waiting for RF power...");
-
-  while ( !(SDA_INPUT_REG & _BV(SDA_PIN)) );
-
-
-  Serial.println("We have an RF connection!");
-*/
-
-  byte b[256];
-
-  const byte one_in_array[] = {0x01};
-
-
-  i2c_init();
- 
-  unsigned long start_time = millis(); 
-
-  Serial.println("Wait...");
-
-
-  
-  Serial.println("On...");
+uint8_t initialProgramming() {
 
    // Turn on Vcc
-  digitalWrite( I2C_VCC_PIN , 1 );
-  pinMode( I2C_VCC_PIN , OUTPUT );
+  Serial.println("Turn on power to ST25...");   
+  vccOn();
+
 
   _delay_us(600);   // Tboot=0.6ms, time from power up until i2c available
 
-  // Read security session
-  i2cRead( b , 0 , ST25DV_I2C_SSO_DYN_REG , 0x0001 );
-  Serial.print("SSO=0:");                                                      
-  Serial.println( b[0] , 16 );   
-
+  Serial.println("Send password to open security session (nessisary to change regs)..."); 
 
   const byte password_in_array[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};    // Default password
   i2cPresentPassord( password_in_array );
 
+  Serial.println("Check security session open success..."); 
+  uint8_t sso_reg;
+  i2cRead( &sso_reg , 0 , ST25DV_I2C_SSO_DYN_REG , 0x0001 );
+  Serial.print("SSO=");
+  Serial.println( sso_reg , 16 );
 
-  // Read security session
-  i2cRead( b , 0 , ST25DV_I2C_SSO_DYN_REG , 0x0001 );
-  Serial.print("SSO=1:");
-  Serial.println( b[0] , 16 );   
+  if ( ! ( sso_reg  & ST25DV_I2C_SSO_DYN_I2CSSO_MASK) ) {
+    Serial.println("Security session NOT open. Maybe wrong password? Abort."); 
+    return 1; 
+  }
 
+  // Enable GPO interrupt on "RF_INTERRUPT". The RF side will send the "Manage GPO" command to
+  // pulse the GPO pin low, which will wake the MCU and start an NFC session. 
 
-  // Read static GPIO 
-  i2cRead( b , 1 , ST25DV_GPO_REG, 0x0001 );
-  Serial.print("GPIO=?:");                                                      
-  Serial.println( b[0] , 16 );   
-
-  Serial.println("Write GPIO 90 (on PUT, Enabled)...");
-  uint8_t new_gpio_reg_val = ST25DV_GPO_RFPUTMSG_MASK | ST25DV_GPO_ENABLE_MASK;
+  Serial.println("Write enable GPIO on RF INTERRUPT...");
+  uint8_t new_gpio_reg_val = ST25DV_GPO_RFINTERRUPT_MASK | ST25DV_GPO_ENABLE_MASK;
   i2cWrite(  &new_gpio_reg_val , 1 , ST25DV_GPO_REG , 0x0001 );
 
 
+  Serial.println("Wait for EEPROM write to complete...");
 
   /*
       I²C write time = 5 ms
@@ -232,188 +230,222 @@ void loop() {
    */
 
   _delay_ms(5);  // Must wait 
+
+  // Check the register updated...
    
-  // Read security session
-  i2cRead( b , 0 , ST25DV_I2C_SSO_DYN_REG , 0x0001 );
-  Serial.print("SSO=1:");
-  Serial.println( b[0] , 16 );   
-  
   // Read static GPIO 
-  i2cRead( b , 1 , ST25DV_GPO_REG, 0x0001 );
-  Serial.print("GPIO=90:");
-  Serial.println( b[0] , 16 );   
+  uint8_t gpo_reg_read;
+  i2cRead( &gpo_reg_read , 1 , ST25DV_GPO_REG, 0x0001 );
+  Serial.print("GPO_REG=");
+  Serial.println( gpo_reg_read , 16 );   
 
-  // Read security session
-  i2cRead( b , 0 , ST25DV_I2C_SSO_DYN_REG , 0x0001 );
-  Serial.print("SSO=1:");
-  Serial.println( b[0] , 16 );   
-  
-
-  // First we enable the mailbox so the RF side doesn't have to (we can do it faster)
-
-  Serial.println("Read MB_CTRL...");
-
-  i2cRead( b , 0 , 0x2006 , 0x0001 );
-  Serial.print("MB_CTRL=?:");                                                      
-  Serial.println( b[0] , 16 );     
-
-  Serial.println("Write MB_CTRL...");
-  
-  i2cWrite(  one_in_array , 0 , 0x2006 , 0x0001 );
-  delay(5);  // Tw i2c max write time 
-  i2cRead( b , 0 , 0x2006 , 0x0001 );
-  Serial.print("MB_CTRL=1:");                                      
-  Serial.println( b[0] , 16 );     
-   // Turn off Vcc
-  digitalWrite( I2C_VCC_PIN , 0 );
-  
-
-  while (1); 
-
-  // Keep waiting for messages as long as there is RF power
-
-  while ( (SDA_PIN & _BV(SDA_BIT)) ) {
-    
-    // Now we poll waiting for a message to come in or for power to drop
-
-     while ((SDA_PIN & _BV(SDA_BIT)) ) {
-     
-        // Read the dynamic mailbox register
-        i2cRead( b , 0 , 0x2006 , 0x0001 );
-        const byte mb_ctrl_dyn = b[0];
-
-
-        if ( mb_ctrl_dyn & 0x04 ) {   // bit 2 = RF_MESSAGE_PUT indicates a message in the mailbox from RF
-
-          // There is a message waiting for us! 
-
-          // Read message len
-          i2cRead( b , 0 , 0x2007 , 0x0001 );
-          const unsigned mb_len_dyn = b[0] + 1;    // Note that message length is register + 1 (you can't have a 0 len message)
-
-          // Read out the message. This automatically clears is so a new message cen be sent. 
-          i2cRead( b ,0 , 0x2008 , mb_len_dyn );
-
-          Serial.println("Message (hex):");
-
-          for( unsigned i=0; i<mb_len_dyn; i++) {
-            Serial.print( (unsigned) b[i] , 16 );
-          }
-
-          Serial.println();
-                    
-        }
-
-        delay(100);   // Give RF some time to write! (i2c activity blocks NFC)
-      
-     }
-  
-    
+  if (gpo_reg_read!=new_gpio_reg_val) {
+    Serial.println("GPO_REGG write failed. Abort."); 
+    return 1;     
   }
 
+  // Next authorize mailbox operations. This allows us to later dynamically enable the mailbox on each power up. 
+  
+  Serial.println("Authorizing mailbox mode...");
+  uint8_t new_mbmode_reg_val = ST25DV_MB_MODE_RW_MASK;    // That is an odd name for this field?
+  i2cWrite(  &new_mbmode_reg_val , 1 , ST25DV_MB_MODE_REG , 0x0001 );
 
-//
-//
-//  const byte zero_in_array[] = {0x00};  
-//  const byte eight_in_array[] = {0x08};
-//
-//  const byte password_in_array[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};    // Default password
-//  
-//  i2cPresentPassord( password_in_array );
-//  Serial.println("Presented password.");                                                    
-//    
-//
-//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2004 , 0x0001 );
-//  Serial.print("I2C_SSO=1:");                                                      
-//  Serial.println( b[0] , 16 );           
-//
-//                                            
-//  i2cWrite(  one_in_array , ST25DV_ADDR_SYST_I2C , 0x000D , 0x0001 );
-//  delay(5);
-//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x000D , 0x0001 );
-//  Serial.print("MB_MODE=1:");                                                      
-//  Serial.println( b[0] , 16 );                                                    
-//
-//
-//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
-//  Serial.print("MB_CTRL=?:");
-//  Serial.println( b[0] , 16 );   
-//
-//  i2cWrite(  one_in_array , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
-//  delay(5);
-//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
-//  Serial.print("MB_CTRL=1:");                                                      
-//  Serial.println( b[0] , 16 );                                                            
-//
-//
-//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x000E , 0x0001 );
-//  Serial.print("MB_WDG:");                                                      
-//  Serial.println( b[0] , 16 );                                                            
-//  i2cWrite(  zero_in_array , ST25DV_ADDR_SYST_I2C , 0x000E , 0x0001 );
-//  delay(5);
-//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x000E , 0x0001 );
-//  Serial.print("MB_WDG=0:");                                                      
-//  Serial.println( b[0] , 16 );                                                            
-//
-//
-//  const byte magic_message_in_array[] = { 0x62 , 0x63 };      
-//  i2cWrite(  magic_message_in_array , ST25DV_ADDR_DATA_I2C , 0x2008 , 0x0002 );
-//  delay(5);
-//  Serial.println( "Wrote message into mailbox." );   
-//  
-//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2006 , 0x0001 );
-//  Serial.print("MB_CTRL=?:");                                                        
-//  Serial.println( b[0] , 16 );                                                    
-//  
-//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2007 , 0x0001 );
-//  Serial.print("MB_LEN=?:");                                                        
-//  Serial.println( b[0] , 16 );                                                    
-//                                          
-//
-//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x17 , 0x001 ); 
-//  Serial.print("IC_REF:");                                                      
-//  Serial.println( b[0] , 16 );                                                    
-//  
-//
-//  i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x18 , 0x008 ); 
-//  Serial.print("UUID:");                                                      
-//  for( int i=0; i<0x08; i++ ) {
-//          Serial.print( (unsigned) b[i] , 16 );        
-//          Serial.print( ' ' );                                                    
-//    }  
-//  Serial.println();        
-//
-//
-//  i2cRead( b , ST25DV_ADDR_DATA_I2C , 0x2004 , 0x0001 );
-//  Serial.print("I2C_SSO=1:");                                                      
-//  Serial.println( b[0] , 16 );           
-//  
-//
-//  
-//  while (1);
+  Serial.println("Wait for EEPROM write to complete...");
+
+  /*
+      I²C write time = 5 ms
+      I2C write time for 1 Byte, 2 Bytes, 3 Bytes or 4 Bytes in EEPROM (user memory and system configuration),
+      provided they are all located in the same memory page, that is the most significant memory address bits
+      (b16-b2) are the same.
+   */
+
+  _delay_ms(5);  // Must wait 
+
+  // Check the register updated...
+   
+  // Read static GPIO 
+  uint8_t mb_mode_read;
+  i2cRead( &mb_mode_read , 1 , ST25DV_MB_MODE_REG, 0x0001 );
+  Serial.print("MB_MODE=");
+  Serial.println( mb_mode_read , 16 );   
+
+  if (mb_mode_read!=new_mbmode_reg_val) {
+    Serial.println("MB_MODE write failed. Abort."); 
+    return 1;     
+  }
   
-//
-//
-//  if ( !i2cRead( b , ST25DV_ADDR_SYST_I2C , 0x18 , 0x008 ) ) {
-//
-//    Serial.println("Read good...");  
-//
-//    for( int i=0; i<0x18; i++ ) {
-//          Serial.print( i );              
-//          Serial.print( ' ' );                  
-//          Serial.print( (char) b[i] );        
-//          Serial.print( ' ' );                            
-//          Serial.println( (unsigned) b[i] , 16 );        
-//                
-//    }
-//
-//    
-//  } else {
-//
-//    Serial.println("Read fail.");  
-//
-//  }
-//  
+
   
+
+  Serial.print("Initial programming successfully completed. Powwering ST25 down.");
+
+  // Turn off Vcc   
+  vccFloat();
+  
+  // TODO: Maybe protect all regs and add a password? Add NDEF record to open app store/web page? 
+
+  return 0;
+  
+}
+
+
+void setup() {
+  
+  Serial.begin(1000000);
+
+  delay(100);
+  Serial.println("\r\nNFC blink emulator 1.0.");  
+
+  // Make sure ST25DV is reset
+  vccOff();
+  delay(10);
+  vccFloat();
+
+  // Set up pins
+  // Leaves SDA pull-up
+  i2c_init(); 
+  delay(1);      // Wait for SDA to pull high
+
+  // Only needs to be done one time per ST25 chip, but no harm doing multipule times
+  // initialProgramming(); 
+
+}
+
+
+void print_mb_dyn() {
+  uint8_t mb_dyn_reg;
+
+  i2cRead( &mb_dyn_reg , 0 , ST25DV_MB_CTRL_DYN_REG , 0x0001 );  
+
+  Serial.print("mb_dyn=");
+  Serial.println( mb_dyn_reg , 16 );
+}
+
+
+void loop() {
+
+
+  // First we wait for SDA to be pulled low by the GPO pin. This signals the phone has sent the
+  // GPO interrupt command. 
+
+  // On connection, we will have the app send the Manage GPO command to drive GGPO pin low...
+  // Command=0xa9 (Magage GPO), Data 0x80 (USER_INTERUPT - GPO pin pulsed to 0 during IT Time then released)
+  // This command can be sent without Vcc power, so we use it to wake the MCU which will then power up Vcc
+  // We could also trigger on an RF field being present, but that could unessisarily wake MCU on any
+  // RF thing happening (NDEF  ref, or even just a field being present). This will limit us to only 
+  // waking pretty much on a good connection from our own app. 
+  
+  Serial.println("Wait for GPO pulse command from RF side...");
+
+  while ( SDA_PIN & _BV(SDA_BIT) );
+
+  uint32_t startTime = millis(); 
+  
+   // Turn on Vcc
+  Serial.println("Turn on power to ST25...");   
+  vccOn();
+
+  _delay_ms(1); // Give time for the GPO pulse to end. Since GPO and SDA are connected to the same MCU pin 
+                // we can not do any i2c until this pulse is over. 
+                // This also gives us time for Tboot=0.6ms, time from power up until i2c available
+                
+  print_mb_dyn();
+  
+  // OK, now should be all clear to use i2c now
+
+  // Disable the RF INTERRUPT and enable RF_PUT_MSG_EN so we can now use
+  // GPO to let us know instantly when a new message from RF is ready for us.
+  // Note this is the dynamic register, so when we are done with this session it will go back
+  // to having USER STATE enabled on next power up. 
+  // The GPO pulse would disrupt any i2c communications going on, but there will be none 
+  // while we wait for next mailbox message. 
+
+  uint8_t new_gpo_dyn_reg_val = ST25DV_GPO_DYN_RFPUTMSG_MASK | ST25DV_GPO_DYN_ENABLE_MASK;
+
+  i2cWrite(  &new_gpo_dyn_reg_val , 0 , ST25DV_GPO_DYN_REG , 0x0001 );
+
+  // Don't bother checking if it worked - nothing we can do if it did not and we will eventuall time out. 
+
+  // Now we are ready to send the welcome_bundle message to the RF side. This tells the app (1) it is talking to a 
+  // blink, the latest high score data to save, (3) that we are ready to start downloading game blocks. 
+
+  // First we need to enable mailbox
+
+  Serial.println("Enable mailbox...");
+
+  const uint8_t mailbox_enable_reg_val = ST25DV_MB_CTRL_DYN_MBEN_MASK;
+  
+  i2cWrite(  &mailbox_enable_reg_val , 0 , ST25DV_MB_CTRL_DYN_REG , 0x0001 );  
+
+  print_mb_dyn();
+
+  Serial.println("Putting message in mailbox...");
+  // Send a mailbox
+  const uint8_t message[] = "This is a message to go from i2c to RF using the ST25DV Fast Transfer Message function.";
+  i2cWrite(  message , 0 , ST25DV_MAILBOX_RAM_REG  , sizeof( message ) );
+
+  //print_mb_dyn();
+
+  // Now wait for the phone to send us some blocks...
+
+  uint32_t endTime = millis();
+
+  Serial.print("Millis until gamestats mailbox ready=");
+  Serial.println( endTime - startTime ); 
+
+  while (1) {    
+
+    Serial.println("Waiting for mailbox message from RF side...");
+
+    uint8_t mb_dyn_reg;
+    uint8_t retVal;
+
+    do {
+      
+      _delay_ms(100);   // Give the RF side a chance...
+      retVal = i2cRead( &mb_dyn_reg , 0 , ST25DV_MB_CTRL_DYN_REG , 0x0001 );
+    } while ( (retVal!=0) || ((mb_dyn_reg & ST25DV_MB_CTRL_DYN_RFPUTMSG_MASK) == 0) );    // New message from RF side? retVal!=0 means busy on RF side
+
+    Serial.println( mb_dyn_reg , 16 );
+    Serial.println( mb_dyn_reg & ST25DV_MB_CTRL_DYN_RFPUTMSG_MASK , 16 );
+    
+    //print_mb_dyn();
+
+    Serial.print("Got block from RF. LEN=");
+    
+    uint8_t mb_len_reg;
+
+    i2cRead( &mb_len_reg , 0 , ST25DV_MB_LEN_DYN_REG , 0x0001 );    // "Size in byte, minus 1 byte, of message contained in FTM mailbox"
+
+    const uint16_t mb_len = mb_len_reg + 1;  // Number of bytes is len reg + 1, so if reg=0 then 1 byte in mailbox buffer
+
+    Serial.println( mb_len );   
+
+    uint8_t mailbox_buffer[ST25DV_MAX_MAILBOX_LENGTH];
+
+    const uint8_t rr = i2cRead( mailbox_buffer , 0 , ST25DV_MAILBOX_RAM_REG , mb_len+1 );
+
+    Serial.print("mailbox read result=");
+    Serial.println(rr);
+
+    Serial.println("Mailbox chars:");
+    for( uint8_t i = 0; i < mb_len ; i++ ) {
+
+      const char c =(char) mailbox_buffer[i];
+      if (isprint(c)) {
+        Serial.print(c); 
+      } else {
+        Serial.print( '[');
+        Serial.print( (byte) c , 16 );        
+        Serial.print( ']');        
+      }
+      
+    }
+
+    Serial.println();
+    //print_mb_dyn();
+  }
+
+  vccFloat();
 
 }

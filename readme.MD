@@ -9,45 +9,64 @@ Some code to test ST25DV NFC chips using an arduino. Most interested in getting 
 ```
 ST25 SCL -> Arduino A5
 ST25 SDA -> Arduino A4
+ST25 GPO -> Arduino A4 
+ST25 Vcc -> Arduino A3
 ST25 Ground -> Arduino Ground.
 ```
-Both SCL and SDA have 1K pull-ups to Vcc.
+
+Note that SDA and GPO are connected together. We will set the GPO to pull down the pin when a new message arrives in the mailbox (RF PUT). This will wake us with an interrupt on the first one, then we will use it to know when to grab the next mailbox after each block is downloaded.  
+
+Both SDA has 5K pull-up to Vcc. This is used during data transfer, but disabled when Vcc is floating - in which case we will use the internal pin pull up. Note we need this extra pull-up becuase the internal pullup is not strong enough for high speed data. 
 
 ### Power
 
-```
-ST25 EH -> ST25 VCC
-```
+You can not enable the mailbox or use i2c features unless the chips sees good VCC, so we supply it via an IO pin in response to seeing activity from the GPO pin.
 
-You can not enable the mailbox features unless the chips sees VCC, so we grab the VCC from the energy harvesting pin, and then we enable energy harvesting.
 
 ### Wake up
 
-~100K pull-down from SDA to ground.
+#### From MCU Side
 
-This bleeds off any charge on SDA when there is no RF connection to the chip. This makes it so we can detect 
-a new connection when ever SDA goes high (because it will be driven by EH).
+1. RF field is presented to the ST25.
+2. The ST25 pulls GPO pin low based on FIELD_CHANGE_EN. 
+3. This wakes/interrupts the MCU.
+4. MCU puts power on VCC.
+5. MCU uses i2c to change dynamic GPO to signal on received mailbox message. 
+6. MCU enables mailbox.
+7. MCU puts welcome message into mailbox (should contain a cookie + high score info).
+7. MCU waits for GPO signal that mailbox is ready.
+8. MCU reads block from mailbox.
+9. Back to #7 until all game blocks are received. 
+10. MCU powers down Vcc.
 
-This resistor is big enough that it should not matter when things are running normally.
+Note that at powerdown, the ST25 GPO mode will go back to the static register setting, which is RF field. 
+
+#### From Phone Side
+
+1. Phone is presented to ST25
+2. Phone polls mailbox register looking for mailbox message ready. TODO: How fast should we poll?
+3. Phone puts block into mailbox.
+4. Phone polls to see when message is read.
+5. Back to #3 until all blocks are written.
+
+
+I do not think we need or want a final confirm block from the MCU back to the phone? 
+
 
 ## Initialization
 
 To save time on each connect we can get everything ready by setting stat registers....
 
-EH_MODE = 0x00. Turns on energy harvesting each time we get an RF power up.
-Command=A1 Data=02 00
-
-
 MB_MODE = 0x01. Allows mailboxes to be enabled.
-
-
 
 
 TODO: We probably want to put an NREF record that has a URI that points to the app in the app store? Can we support both iPhone and Android? Can we have it automatically open the app?  
 
-TODO: i2c Password? Do we want to change this? 
+TODO: i2c Password? Do we want to change this? Probably.  
 
-TODO: We probably want to block write access to everything except the dyn mailbox register from the RF side to keep people from overwriting stuff? 
+TODO: We probably want to block write access to everything except the dyn mailbox register from the RF side to keep people from overwriting stuff?
+
+TODO: Do we want the MCU to do initialization on every power up? Or do we want to program the ST25 via RF one during manufacture? If we do with MCU, one less factory step, but does uses more flash and means password is inside the MCU flash. 
 
 ## On connect
 
@@ -69,7 +88,7 @@ TODO: What is the difference between the "fast" and normal message commands? Do 
 
 ### Read GPIO register
 
-This is good to test if you have connecttivity since it will return a prdictable non-zero number.
+This is good to test if you have connectivity since it will return a prdictable non-zero number.
 
 00 0A 02 00 
 

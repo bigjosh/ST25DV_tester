@@ -124,15 +124,24 @@ void i2cPresentPassord( const uint8_t *pData) {
 
 byte i2cRead( byte *pData, const uint8_t e2, const uint16_t TarAddr,  uint16_t len) {
 
-  i2c_start(ST25_deviceSelectCode( e2 , 0 ));    // All reads start with a write to set the address
-  if (i2c_write(TarAddr >> 8)) {           //  The command byte, sets pointer to register with address of 0x32
-    return 1;
-  }
-  if (i2c_write(TarAddr & 0xFF)) {         //  The command byte, sets pointer to register with address of 0x32
+  if (i2c_start(ST25_deviceSelectCode( e2 , 0 ))) {    // All reads start with a write to set the address
+    // Got NAK
     return 1;
   }
   
-  i2c_restart(ST25_deviceSelectCode( e2 , 1 ));  // Do a restart to now read from the address set above
+  if (i2c_write(TarAddr >> 8)) {          
+    // Got NAK
+    return 1;
+  }
+  if (i2c_write(TarAddr & 0xFF)) {        
+    // Got NAK
+    return 1;
+  }
+  
+  if (i2c_restart(ST25_deviceSelectCode( e2 , 1 ))) {  // Do a restart to now read from the address set above
+    // Got NAK
+    return 1;
+  }
     
   while ( len ) {
 

@@ -190,7 +190,7 @@ uint8_t i2c_read( uint8_t lastFlag ) {
   
   }
 
-  // ACK
+  // ACK bit
 
   if (lastFlag) {    
     sda_high();       // NAK on last byte of sequence read
@@ -201,6 +201,9 @@ uint8_t i2c_read( uint8_t lastFlag ) {
   _delay_us(BIT_TIME_US);
 
   scl_high(); 
+  _delay_us(BIT_TIME_US);
+  scl_low(); 
+  sda_high();
   
   return data; 
 

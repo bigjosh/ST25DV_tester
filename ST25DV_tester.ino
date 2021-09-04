@@ -147,7 +147,12 @@ byte i2cRead( byte *pData, const uint8_t e2, const uint16_t TarAddr,  uint16_t l
 
     len--;
 
-    byte c = i2c_read( len==0 );      // the param here is called "last" and is true if this is the lasy byte to read
+    const byte lastFlag = (len==0);
+
+    byte c = i2c_read( lastFlag );      // the param here is called "last" and is true if this is the lasy byte to read
+    Serial.print("i2cread=");
+    Serial.print( (lastFlag)?'N':'A');
+    Serial.println(c,16);
     *pData = c;
     pData++;
   }
@@ -413,6 +418,12 @@ void loop() {
       
       _delay_ms(100);   // Give the RF side a chance...
       retVal = i2cRead( &mb_dyn_reg , 0 , ST25DV_MB_CTRL_DYN_REG , 0x0001 );
+
+      Serial.print("retval=");
+      Serial.println(retVal);
+      Serial.print("mb_dyn=");
+      Serial.println( mb_dyn_reg );
+      
     } while ( (retVal!=0) || ((mb_dyn_reg & ST25DV_MB_CTRL_DYN_RFPUTMSG_MASK) == 0) );    // New message from RF side? retVal!=0 means busy on RF side
 
     Serial.println( mb_dyn_reg , 16 );

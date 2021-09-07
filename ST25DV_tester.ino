@@ -225,8 +225,12 @@ uint8_t initialProgramming() {
   // Enable GPO interrupt on "RF_INTERRUPT". The RF side will send the "Manage GPO" command to
   // pulse the GPO pin low, which will wake the MCU and start an NFC session. 
 
+  // Also enable on "RF_PUT". This will pulse GPO pin low when a new mailbox message has been received from
+  // the RF side. This should be faster than polling thew mailbox regs since that polling on the i2c bus
+  // could block the RF side form doing its put. 
+
   Serial.println("Write enable GPIO on RF INTERRUPT...");
-  uint8_t new_gpio_reg_val = ST25DV_GPO_RFINTERRUPT_MASK | ST25DV_GPO_ENABLE_MASK;
+  uint8_t new_gpio_reg_val = ST25DV_GPO_RFINTERRUPT_MASK | ST25DV_GPO_DYN_RFPUTMSG_MASK | ST25DV_GPO_ENABLE_MASK;
   i2cWrite(  &new_gpio_reg_val , 1 , ST25DV_GPO_REG , 0x0001 );
 
 
@@ -336,7 +340,7 @@ void loop() {
   // First we wait for SDA to be pulled low by the GPO pin. This signals the phone has sent the
   // GPO interrupt command. 
 
-  // On connection, we will have the app send the Manage GPO command to drive GGPO pin low...
+  // On connection, we will have the app send the Manage GPO command to drive GPO pin low...
   // Command=0xa9 (Magage GPO), Data 0x80 (USER_INTERUPT - GPO pin pulsed to 0 during IT Time then released)
   // This command can be sent without Vcc power, so we use it to wake the MCU which will then power up Vcc
   // We could also trigger on an RF field being present, but that could unessisarily wake MCU on any
@@ -361,19 +365,6 @@ void loop() {
   
   // OK, now should be all clear to use i2c now
 
-  // Disable the RF INTERRUPT and enable RF_PUT_MSG_EN so we can now use
-  // GPO to let us know instantly when a new message from RF is ready for us.
-  // Note this is the dynamic register, so when we are done with this session it will go back
-  // to having USER STATE enabled on next power up. 
-  // The GPO pulse would disrupt any i2c communications going on, but there will be none 
-  // while we wait for next mailbox message. 
-
-  uint8_t new_gpo_dyn_reg_val = ST25DV_GPO_DYN_RFPUTMSG_MASK | ST25DV_GPO_DYN_ENABLE_MASK;
-
-  i2cWrite(  &new_gpo_dyn_reg_val , 0 , ST25DV_GPO_DYN_REG , 0x0001 );
-
-  // Don't bother checking if it worked - nothing we can do if it did not and we will eventuall time out. 
-
   // Now we are ready to send the welcome_bundle message to the RF side. This tells the app (1) it is talking to a 
   // blink, the latest high score data to save, (3) that we are ready to start downloading game blocks. 
 
@@ -387,12 +378,14 @@ void loop() {
 
   //print_mb_dyn();
 
-  Serial.println("Putting message in mailbox...");
+  Serial.println("Putting gamestat block in mailbox...");
   // Send a mailbox
-  const uint8_t message[] = "This is a message to go from i2c to RF using the ST25DV Fast Transfer Message function.";
-  i2cWrite(  message , 0 , ST25DV_MAILBOX_RAM_REG  , sizeof( message ) );
+  const uint8_t message[] = "bks1";   // Gamstat always starts with this magic cookie 
 
-  //print_mb_dyn();
+  #warning put real gamestats here. 
+  i2cWrite(  message , 0 , ST25DV_MAILBOX_RAM_REG  , sizeof( message ) + 251 );
+
+  print_mb_dyn();
 
   // Now wait for the phone to send us some blocks...
 
@@ -403,29 +396,15 @@ void loop() {
 
   while (1) {    
 
-    Serial.println("Waiting for mailbox message from RF side...");
+    Serial.println("Waiting for GPO pulse to indicate mailbox message from RF side...");
+  
+    while ( SDA_PIN & _BV(SDA_BIT) );
 
-    uint8_t mb_dyn_reg;
-    uint8_t retVal;
-
-    do {
-      
-      _delay_ms(100);   // Give the RF side a chance...
-      retVal = i2cRead( &mb_dyn_reg , 0 , ST25DV_MB_CTRL_DYN_REG , 0x0001 );
-
-//      Serial.print("retval=");
-//      Serial.println(retVal);
-//      Serial.print("mb_dyn=");
-//      Serial.println( mb_dyn_reg );
-      
-    } while ( (retVal!=0) || ((mb_dyn_reg & ST25DV_MB_CTRL_DYN_RFPUTMSG_MASK) == 0) );    // New message from RF side? retVal!=0 means busy on RF side
-
-    Serial.println( mb_dyn_reg , 16 );
-    Serial.println( mb_dyn_reg & ST25DV_MB_CTRL_DYN_RFPUTMSG_MASK , 16 );
+    Serial.println("Wait for GPO pulse command from RF side to be over so we can i2c...");
     
-    //print_mb_dyn();
+    while ( ! (SDA_PIN & _BV(SDA_BIT)) );
 
-    Serial.print("Got block from RF. LEN=");
+    print_mb_dyn();
     
     uint8_t mb_len_reg;
 
@@ -433,6 +412,7 @@ void loop() {
 
     const uint16_t mb_len = mb_len_reg + 1;  // Number of bytes is len reg + 1, so if reg=0 then 1 byte in mailbox buffer
 
+    Serial.print("Got block from RF. LEN=");
     Serial.println( mb_len );   
 
     uint8_t mailbox_buffer[ST25DV_MAX_MAILBOX_LENGTH];
@@ -458,6 +438,7 @@ void loop() {
 
     Serial.println();
     print_mb_dyn();
+   
   }
 
   vccFloat();

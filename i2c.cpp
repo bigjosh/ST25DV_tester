@@ -7,11 +7,13 @@
 #define SBI(x,b) (x|=(1<<b))
 #define TBI(x,b) ((x&(1<<b))!=0)
 
+// Sorry to have had to write yet another i2c implementation, but here we need to also
+// share the SDA line with the GPO wakeup signal. 
 
 // Assumes OUT bits are still at startup default of 0
 
 // SDA allways either (1) pulled high, or (2) driven low. 
-// Assumes there is ~5K external pull-up on here if you want to go fast.
+// Assumes there is external pull-up on here if you want to go fast.
 
 // SCL always driven. Idle state is HIGH.
 

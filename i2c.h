@@ -1,11 +1,17 @@
 
 #define BIT_TIME_US     (1)          // How long should should we wait between bit transitions?
 
-#define SCL_BIT   5
+// Sorry these are defined here. We can not use built-in digital___() functions becuase they are too slow. 
+// Could have used FastGPIO library, but then would have to
+// explain how to install that. :/
+
+// Arduino UNO pin A3
+#define SCL_BIT   3
 #define SCL_PORT  PORTC
 #define SCL_DDR   DDRC
 
-#define SDA_BIT   4
+// Arduino UNO pin A2
+#define SDA_BIT   2
 #define SDA_PORT  PORTC
 #define SDA_DDR   DDRC
 #define SDA_PIN   PINC

@@ -1,53 +1,51 @@
 
 /*
 
-  ST25DV NFC chip tester. (c)2021 josh.comb 
+  ST25DV NFC chip tester. (c)2021 josh.com
 
-  Demonstrate having a phone write a block to the mailbox over NFC and have the Arduino 
-  notice the new connection and read that block. 
+  Demonstrate having a phone write a file to the mailbox over NFC 
 
-  ST25DV is only powered from RF.
-  Requires only 2 pins. 
 
-  Phew that was fricken hard. 
+  For convience it reprograms the static registers each time the sketch is run, but these only need to be 
+  programmed once per chip. See initialProgramming() function for details. 
+
+   
+  Requires these connections from SD25DV to Arduino:              
+  GND->Arduino A5
+  VCC->Arduino A4
+  SCL->Arduino A3
+  SDA->Arduino A2
+
+  ST25DV pin RF/GPO should be connected to SDA.
+
+  There must also be a ~1K OHM resistor and schotkey diode in series between the SDA pin and the VCC pin with the diode 
+  pointed towards the SDA pin. 
   
- 
-  Requires these static registers already be set on the ST25DV:
-
-  EH_MODE=0x00 - Force energy harvesting on at power up. We need this to power the VCC since the chip will not allow mailbox
-                 transactions without VCC. 
-
-  MB_MODE=0x01 - Allows the mailbox function to be enabled.
-
-
-  Requires these connections:              
-  SCL->Arduino A5
-  SDA->Arduino A4
-  GND->Arduino GND
-  EH->VCC
-
-  5K resistor from SDA to VCC
-  100K resistor from SDA to GND
+  Designed to be handy wihen used with a mdoifed ST25DV tester board which can be plugged directly into
+  the Arduino A5-A2 headers. See readme.MD for more details.
+  
   
   To use:
-  Load this sketch into an UNO and then set the the serial monitor to 1000000 and send a message. It should print. 
+  Load this sketch into an UNO and then set the the serial monitor to 1000000.
 
-  To send a message:
-  
-  1. Load the ST NFC app on your phone.
-  2. Set the MB_CTRL_DYN register to 0x01. This enables mailbox.
-  3. Send a message using the following custom command on the phone...
-  
-      Custom Command
-      Addressed Mode
-      CMD_CODE = 0xac
-      Manufacturer checked (0x02)
-      Data: 00 00 (this is for the pointer to where to start reading in the mailbox buffer and len. 00,00 mean start at beginning and read whole thing)
+  Hold a phone running the file send test app up to the coil and the transfer should begin. The Arduino
+  will print status updates and then print the file CRC when transfer is complete. 
+
+  The iOS test app is here...
+  https://github.com/bigjosh/blinks-nfc-app-ois
+
+
+  You can also manually send a file using the ST NFC test app...
   
 */  
 
+// NOTE: SCL and SDA are here for documentation only! 
+//       To change these pins, you must change I2C_xxx in i2c.h
 
-#define I2C_VCC_PIN A3
+#define ST25_GND_PIN A5
+#define ST25_VCC_PIN A4
+#define ST25_SCL_PIN A3
+#define ST25_SDA_PIN A2
 
 #include "i2c.h"
 #include "st25dv.h"
@@ -83,22 +81,30 @@ byte i2cWrite( const uint8_t *pData, const uint8_t e2, const uint16_t TarAddr,  
 
 }
 
+// We just use the GPIO pin as a ground so that we can plug the eval board
+// directly into the Arduino headers. 
+
+void gndOn() {
+  digitalWrite( ST25_GND_PIN, 0 );  
+  pinMode( ST25_GND_PIN , OUTPUT ); 
+}
+
 void vccOn() {
-  digitalWrite( I2C_VCC_PIN , 1 );  
-  pinMode( I2C_VCC_PIN , OUTPUT ); 
+  digitalWrite( ST25_VCC_PIN, 1 );  
+  pinMode( ST25_VCC_PIN , OUTPUT ); 
 }
 
 // Force Vcc low to bleed off any charge
 
 void vccOff() {
-  digitalWrite( I2C_VCC_PIN , 0 );  
-  pinMode( I2C_VCC_PIN , OUTPUT ); 
+  digitalWrite( ST25_VCC_PIN , 0 );  
+  pinMode( ST25_VCC_PIN , OUTPUT ); 
 }
 
 
 void vccFloat() {
-  pinMode( I2C_VCC_PIN , INPUT );   
-  digitalWrite( I2C_VCC_PIN , 0 );  
+  pinMode( ST25_VCC_PIN, INPUT );   
+  digitalWrite( ST25_VCC_PIN , 0 );  
 }
 
 
@@ -290,7 +296,7 @@ uint8_t initialProgramming() {
   }
   
 
-  Serial.print("Initial programming successfully completed. Powwering ST25 down.");
+  Serial.println("Initial programming successfully completed. Powering ST25 down.");
 
   // Turn off Vcc   
   vccFloat();
@@ -309,6 +315,10 @@ void setup() {
   delay(100);
   Serial.println("\r\nNFC blink emulator 1.0.");  
 
+  // Enable the GND pin
+  gndOn(); 
+
+  Serial.println("Power cycling ST25DV...");  
   // Make sure ST25DV is reset
   vccOff();
   delay(10);
@@ -320,7 +330,10 @@ void setup() {
   delay(1);      // Wait for SDA to pull high
 
   // Only needs to be done one time per ST25 chip, but no harm doing multipule times
-  // initialProgramming(); 
+
+  Serial.println("Running initial programming on ST25DV chip (note this really only needs to be done once per chip)...");  
+  
+  initialProgramming(); 
 
 }
 

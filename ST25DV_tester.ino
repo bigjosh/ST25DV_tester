@@ -51,6 +51,7 @@
 
 #include "i2c.h"
 #include "st25dv.h"
+#include <util/crc16.h>
 
 #define ST25_DEVICE_TYPE_ID (0b1010)  // "the 4-bit device type identifier is 1010b."
 
@@ -334,6 +335,85 @@ void print_mb_dyn() {
 }
 
 
+void readblocks() {
+
+  Serial.println("Begin game download.");  
+    
+  uint16_t gameLen = 0;
+  uint16_t expected_crc=0;
+  uint16_t received_crc=0xffff;   // Defined starting value
+
+  do {    
+
+    Serial.println("Waiting for GPO pulse to indicate mailbox message from RF side...");
+  
+    while ( SDA_PIN & _BV(SDA_BIT) );
+
+    Serial.println("Wait for GPO pulse command from RF side to be over so we can i2c...");
+    
+    while ( ! (SDA_PIN & _BV(SDA_BIT)) );
+
+    print_mb_dyn();
+    
+    uint8_t mb_len_reg;
+
+    i2cRead( &mb_len_reg , 0 , ST25DV_MB_LEN_DYN_REG , 0x0001 );    // "Size in byte, minus 1 byte, of message contained in FTM mailbox"
+
+    const uint16_t mb_len = mb_len_reg + 1;  // Number of bytes is len reg + 1, so if reg=0 then 1 byte in mailbox buffer
+
+    Serial.print("Got block from RF. LEN=");
+    Serial.println( mb_len );   
+
+    uint8_t mailbox_buffer[ST25DV_MAX_MAILBOX_LENGTH];
+
+    const uint8_t rr = i2cRead( mailbox_buffer , 0 , ST25DV_MAILBOX_RAM_REG , mb_len );
+
+    if (rr) {
+
+      Serial.print("i2cread error=");        
+      Serial.println(rr);        
+    }
+
+    if (gameLen==0) {
+      // read header
+
+      gameLen       = mailbox_buffer[0] | (mailbox_buffer[1] * 0x100);
+      expected_crc  = mailbox_buffer[2] | (mailbox_buffer[3] * 0x100);
+
+      Serial.print("header len=");
+      Serial.println( gameLen );
+      Serial.print("header crc=");
+      Serial.println( expected_crc );
+      
+    } else {
+      // read game block
+  
+      Serial.print("game data:");
+
+      for( uint16_t i=0; i<mb_len; i++ ) {
+        uint8_t c = mailbox_buffer[i];
+        received_crc  = _crc16_update  ( received_crc , mailbox_buffer[i]) ;               
+        Serial.print( (char) c );
+      }
+      
+      Serial.print("crc after this block: ");
+      Serial.println( received_crc );
+
+
+      gameLen -= mb_len;
+        
+      Serial.print("remaining bytes after this block: ");
+      Serial.println( gameLen  );
+      
+    }
+   
+  } while (gameLen>0);
+
+  
+  Serial.println("Game download complete.");  
+  
+}
+
 void loop() {
 
 
@@ -392,55 +472,10 @@ void loop() {
   uint32_t endTime = millis();
 
   Serial.print("Millis until gamestats mailbox ready=");
-  Serial.println( endTime - startTime ); 
+  Serial.println( endTime - startTime );   
 
-  while (1) {    
-
-    Serial.println("Waiting for GPO pulse to indicate mailbox message from RF side...");
+  readblocks();
   
-    while ( SDA_PIN & _BV(SDA_BIT) );
-
-    Serial.println("Wait for GPO pulse command from RF side to be over so we can i2c...");
-    
-    while ( ! (SDA_PIN & _BV(SDA_BIT)) );
-
-    print_mb_dyn();
-    
-    uint8_t mb_len_reg;
-
-    i2cRead( &mb_len_reg , 0 , ST25DV_MB_LEN_DYN_REG , 0x0001 );    // "Size in byte, minus 1 byte, of message contained in FTM mailbox"
-
-    const uint16_t mb_len = mb_len_reg + 1;  // Number of bytes is len reg + 1, so if reg=0 then 1 byte in mailbox buffer
-
-    Serial.print("Got block from RF. LEN=");
-    Serial.println( mb_len );   
-
-    uint8_t mailbox_buffer[ST25DV_MAX_MAILBOX_LENGTH];
-
-    const uint8_t rr = i2cRead( mailbox_buffer , 0 , ST25DV_MAILBOX_RAM_REG , mb_len );
-
-    Serial.print("mailbox read result=");
-    Serial.println(rr);
-
-    Serial.println("Mailbox chars:");
-    for( uint8_t i = 0; i < mb_len ; i++ ) {
-
-      const char c =(char) mailbox_buffer[i];
-      if (isprint(c)) {
-        Serial.print(c); 
-      } else {
-        Serial.print( '[');
-        Serial.print( (byte) c , 16 );        
-        Serial.print( ']');        
-      }
-      
-    }
-
-    Serial.println();
-    print_mb_dyn();
-   
-  }
-
   vccFloat();
 
 }

@@ -12,10 +12,10 @@ Note that SDA and GPO are connected together. We will set the GPO to pull down t
 
 Both SDA has 5K pull-up to Vcc. This is used during data transfer, but disabled when Vcc is floating - in which case we will use the internal pin pull up. Note we need this extra pull-up becuase the internal pullup is not strong enough for high speed data. 
 
-It is easy to build this circuit on a an SY25DV eval board...
+It is easy to build this circuit on an ST25DV eval board...
 ![image](https://user-images.githubusercontent.com/5520281/135495402-b1753ec9-7ac3-45bb-b0f9-891138b990c5.png)
 
-The pins are layed out to make it possible to directly plug an ST25DV eval board directly into the Arduino header pins A5-A2. The board's coil should be pointing away from the Arduino. 
+The pins are laid out to make it possible to directly plug an ST25DV eval board directly into the Arduino header pins A5-A2. The board's coil should be pointing away from the Arduino. 
 
 
 ### Power

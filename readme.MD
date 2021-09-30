@@ -2,6 +2,16 @@
 
 Some code to test ST25DV NFC chips using an arduino. Most interested in getting the fast transfer mailbox stuff to work.
 
+## Quick start
+
+1. Plug modified ST25DV eval board into the Arduino. It should connect to pins A5-A2 with the coil pointing away from the Arduino.
+2. Load the skecth in repo onto the Arduino.
+3. Open an Arduino serial monitor window with 1000000 baud. 
+4. You should see a "Waiting for GPO..." message.
+5. Run the sending app on the phone.
+6. Hold the phone to the ST25DV coil.
+7. You should see a file transfer progress print in the serial monitor. 
+
 ## Connections
 
 ### Communications 

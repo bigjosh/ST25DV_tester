@@ -2,21 +2,31 @@
 
 Some code to test ST25DV NFC chips using an arduino. Most interested in getting the fast transfer mailbox stuff to work.
 
+## Quick start
+
+1. Plug modified ST25DV eval board into the Arduino. It should connect to pins A5-A2 with the coil pointing away from the Arduino.
+2. Load the skecth in repo onto the Arduino.
+3. Open an Arduino serial monitor window with 1000000 baud. 
+4. You should see a "Waiting for GPO..." message.
+5. Run the sending app on the phone.
+6. Hold the phone to the ST25DV coil.
+7. You should see a file transfer progress print in the serial monitor. 
+
 ## Connections
 
 ### Communications 
 
-```
-ST25 SCL -> Arduino A5
-ST25 SDA -> Arduino A4
-ST25 GPO -> Arduino A4 
-ST25 Vcc -> Arduino A3
-ST25 Ground -> Arduino Ground.
-```
+![image](https://user-images.githubusercontent.com/5520281/135495113-111eaf12-31ef-4298-8e93-bd8785e0ea90.png)
 
 Note that SDA and GPO are connected together. We will set the GPO to pull down the pin when a new message arrives in the mailbox (RF PUT). This will wake us with an interrupt on the first one, then we will use it to know when to grab the next mailbox after each block is downloaded.  
 
 Both SDA has 5K pull-up to Vcc. This is used during data transfer, but disabled when Vcc is floating - in which case we will use the internal pin pull up. Note we need this extra pull-up becuase the internal pullup is not strong enough for high speed data. 
+
+It is easy to build this circuit on an ST25DV eval board...
+![image](https://user-images.githubusercontent.com/5520281/135495402-b1753ec9-7ac3-45bb-b0f9-891138b990c5.png)
+
+The pins are laid out to make it possible to directly plug an ST25DV eval board directly into the Arduino header pins A5-A2. The board's coil should be pointing away from the Arduino. 
+
 
 ### Power
 
@@ -31,7 +41,7 @@ You can not enable the mailbox or use i2c features unless the chips sees good VC
 2. The ST25 pulls GPO pin low based on FIELD_CHANGE_EN. 
 3. This wakes/interrupts the MCU.
 4. MCU puts power on VCC.
-5. MCU uses i2c to change dynamic GPO to signal on received mailbox message. 
+5. MCU uses i2c to enable  dynamic GPO to signal on received mailbox message. 
 6. MCU enables mailbox.
 7. MCU puts welcome message into mailbox (should contain a cookie + high score info).
 7. MCU waits for GPO signal that mailbox is ready.
@@ -39,26 +49,22 @@ You can not enable the mailbox or use i2c features unless the chips sees good VC
 9. Back to #7 until all game blocks are received. 
 10. MCU powers down Vcc.
 
-Note that at powerdown, the ST25 GPO mode will go back to the static register setting, which is RF field. 
-
 #### From Phone Side
 
 1. Phone is presented to ST25
 2. Phone polls mailbox register looking for mailbox message ready. TODO: How fast should we poll?
-3. Phone puts block into mailbox.
-4. Phone polls to see when message is read.
-5. Back to #3 until all blocks are written.
-
+3. Phone check for proper welcome message.
+4. Phone puts block into mailbox. Note first block is special and has l;ength and CRC. 
+5. Phone polls to see when message is read.
+6. Back to #3 until all blocks are written.
 
 I do not think we need or want a final confirm block from the MCU back to the phone? 
-
 
 ## Initialization
 
 To save time on each connect we can get everything ready by setting stat registers....
 
 MB_MODE = 0x01. Allows mailboxes to be enabled.
-
 
 TODO: We probably want to put an NREF record that has a URI that points to the app in the app store? Can we support both iPhone and Android? Can we have it automatically open the app?  
 

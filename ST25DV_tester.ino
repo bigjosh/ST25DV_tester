@@ -422,8 +422,11 @@ void readblocks() {
    
   } while (gameLen>0);
 
-  
-  Serial.println("Game download complete.");  
+  Serial.println("Game download complete.");    
+  Serial.print("Expected CRC:");  
+  Serial.println(expected_crc);  
+  Serial.print("Received CRC:");    
+  Serial.println(received_crc);  
   
 }
 

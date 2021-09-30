@@ -6,15 +6,22 @@ Some code to test ST25DV NFC chips using an arduino. Most interested in getting 
 
 ### Communications 
 
-![image](https://user-images.githubusercontent.com/5520281/133873796-97210188-ee60-4356-bec2-9bae5cc87f9b.png)
+```
+ST25 SCL -> Arduino A5
+ST25 SDA -> Arduino A4
+ST25 GPO -> Arduino A4 
+ST25 Vcc -> Arduino A3
+ST25 Ground -> Arduino Ground.
+```
 
 Note that SDA and GPO are connected together. We will set the GPO to pull down the pin when a new message arrives in the mailbox (RF PUT). This will wake us with an interrupt on the first one, then we will use it to know when to grab the next mailbox after each block is downloaded.  
 
-SDA has 2K pull-up to Vcc. This value is not crital, 1K will work fine. This is used during data transfer, but disabled when Vcc is floating - in which case we will use the internal pin pull up. Note we need this extra pull-up becuase the internal pullup is not strong enough for high speed data. 
+Both SDA has 5K pull-up to Vcc. This is used during data transfer, but disabled when Vcc is floating - in which case we will use the internal pin pull up. Note we need this extra pull-up becuase the internal pullup is not strong enough for high speed data. 
 
 ### Power
 
 You can not enable the mailbox or use i2c features unless the chips sees good VCC, so we supply it via an IO pin in response to seeing activity from the GPO pin.
+
 
 ### Wake up
 

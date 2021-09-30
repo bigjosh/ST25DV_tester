@@ -11,6 +11,8 @@ Some code to test ST25DV NFC chips using an arduino. Most interested in getting 
 5. Run the sending app on the phone.
 6. Hold the phone to the ST25DV coil.
 7. You should see a file transfer progress print in the serial monitor. 
+8. If the transfer suceeds, then you should see "download complete" and the expected and actual CRCs should match.
+9. Process will restart after a success. In case of a failed download, press the RESET button on the Arduino to try again. 
 
 ## Connections
 
@@ -23,7 +25,7 @@ Note that SDA and GPO are connected together. We will set the GPO to pull down t
 Both SDA has 5K pull-up to Vcc. This is used during data transfer, but disabled when Vcc is floating - in which case we will use the internal pin pull up. Note we need this extra pull-up becuase the internal pullup is not strong enough for high speed data. 
 
 It is easy to build this circuit on an ST25DV eval board...
-![image](https://user-images.githubusercontent.com/5520281/135495402-b1753ec9-7ac3-45bb-b0f9-891138b990c5.png)
+![image](https://user-images.githubusercontent.com/5520281/135500422-8b78521a-6500-472a-b06e-2ef6f822a6b2.png)
 
 The pins are laid out to make it possible to directly plug an ST25DV eval board directly into the Arduino header pins A5-A2. The board's coil should be pointing away from the Arduino. 
 
